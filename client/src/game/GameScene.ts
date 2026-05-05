@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
 import { Socket } from 'socket.io-client';
 import { Player } from './Player';
-import { PlayerData, RoomState, ChatMessage } from '../../../server/src/types';
+import { RoomState } from '../../../server/src/types';
 
-const WORLD_W = 1200;
-const WORLD_H = 700;
-const GRID_SIZE = 60;
+const GRID_SIZE = 32;
+const WORLD_W = 40 * GRID_SIZE; // 1280
+const WORLD_H = 22 * GRID_SIZE; // 704
 
 export class GameScene extends Phaser.Scene {
   private socket!: Socket;
@@ -16,110 +16,92 @@ export class GameScene extends Phaser.Scene {
     super({ key: 'GameScene' });
   }
 
-  /** Lê socket e localId do registry injetado pelo main.ts via preBoot */
   create(): void {
     this.socket = this.registry.get('socket') as Socket;
     this.localId = this.registry.get('localId') as string;
+    
     this.drawWorld();
     this.registerSocketEvents();
   }
 
-  // ───── Desenha o mundo ─────────────────────────────────────────────────────
-
   private drawWorld(): void {
-    // Fundo escuro
-    this.add.rectangle(0, 0, WORLD_W, WORLD_H, 0x12122a).setOrigin(0);
+    // Chão escuro (estilo Habbo / Cyberpunk)
+    this.add.rectangle(0, 0, WORLD_W, WORLD_H, 0x0f172a).setOrigin(0);
 
-    // Grid de linhas
+    // Desenho do Grid usando Graphics repetido para melhor performance e visual
     const grid = this.add.graphics();
-    grid.lineStyle(1, 0x2a2a4a, 0.8);
+    grid.lineStyle(1, 0x1e293b, 1);
 
+    // Linhas verticais
     for (let x = 0; x <= WORLD_W; x += GRID_SIZE) {
       grid.lineBetween(x, 0, x, WORLD_H);
     }
+    // Linhas horizontais
     for (let y = 0; y <= WORLD_H; y += GRID_SIZE) {
       grid.lineBetween(0, y, WORLD_W, y);
     }
 
-    // Áreas decorativas
-    const deco = this.add.graphics();
+    // Adiciona uma borda sutil ao redor do mundo
+    grid.lineStyle(2, 0x334155, 1);
+    grid.strokeRect(0, 0, WORLD_W, WORLD_H);
 
-    // "Jardim" central
-    deco.fillStyle(0x1a3a1a, 1);
-    deco.fillRoundedRect(400, 250, 400, 200, 16);
-    deco.lineStyle(2, 0x2ecc71, 0.4);
-    deco.strokeRoundedRect(400, 250, 400, 200, 16);
-    this.add.text(600, 350, '🌿 Jardim', {
-      fontSize: '14px', color: '#4ade80', fontFamily: 'Inter, sans-serif',
-    }).setOrigin(0.5).setAlpha(0.7);
-
-    // "Palco" no topo
-    deco.fillStyle(0x2a1a3a, 1);
-    deco.fillRoundedRect(480, 20, 240, 80, 12);
-    deco.lineStyle(2, 0x9b59b6, 0.5);
-    deco.strokeRoundedRect(480, 20, 240, 80, 12);
-    this.add.text(600, 60, '🎤 Palco', {
-      fontSize: '14px', color: '#c084fc', fontFamily: 'Inter, sans-serif',
-    }).setOrigin(0.5).setAlpha(0.8);
-
-    // Instruções
-    this.add.text(10, WORLD_H - 20, 'Clique para mover', {
-      fontSize: '11px', color: '#475569', fontFamily: 'Inter, sans-serif',
+    this.add.text(10, WORLD_H - 20, 'Walking Skeleton v1.1 - Use WASD', {
+      fontSize: '11px', color: '#64748b', fontFamily: 'Inter, sans-serif',
     });
   }
 
-  // ───── Eventos de Socket ───────────────────────────────────────────────────
-
   private registerSocketEvents(): void {
-    // Estado inicial da sala
-    this.socket.on('room:state', (state: RoomState) => {
-      Object.values(state.players).forEach((data) => {
-        this.spawnPlayer(data, data.id === this.localId);
+    // s = Room State (v1.1 com c=color)
+    this.socket.on('s', (state: RoomState) => {
+      Object.entries(state.p).forEach(([id, data]) => {
+        if (!this.players.has(id)) {
+          this.spawnPlayer(id, data, id === this.localId);
+        }
       });
     });
 
-    // Novo jogador entrou
-    this.socket.on('player:joined', (data: PlayerData) => {
+    // j = Player Joined (v1.1 com c=color)
+    this.socket.on('j', (data: { id: string, n: string, x: number, y: number, c: number }) => {
       if (!this.players.has(data.id)) {
-        this.spawnPlayer(data, false);
+        this.spawnPlayer(data.id, { 
+          n: data.n, 
+          x: data.x, 
+          y: data.y, 
+          d: 1, 
+          c: data.c 
+        }, false);
       }
     });
 
-    // Jogador se moveu
-    this.socket.on('player:moved', (data: PlayerData) => {
+    this.socket.on('m', (data: { id: string, x: number, y: number, d: number }) => {
       const player = this.players.get(data.id);
-      player?.setTargetPosition(data.x, data.y);
+      player?.setTargetPosition(data.x, data.y, data.d);
     });
 
-    // Mensagem de chat — mostrar balão no mundo
-    this.socket.on('chat:message', (msg: ChatMessage) => {
-      const player = this.players.get(msg.playerId);
-      player?.showBubble(msg.text);
+    this.socket.on('c', (msg: { id: string, m: string }) => {
+      const player = this.players.get(msg.id);
+      player?.showBubble(msg.m);
     });
 
-    // Jogador saiu
-    this.socket.on('player:left', (id: string) => {
-      const player = this.players.get(id);
+    this.socket.on('q', (data: { id: string }) => {
+      const player = this.players.get(data.id);
       if (player) {
         player.destroy();
-        this.players.delete(id);
+        this.players.delete(data.id);
       }
     });
   }
 
-  // ───── Helpers ────────────────────────────────────────────────────────────
-
-  private spawnPlayer(data: PlayerData, isLocal: boolean): void {
+  private spawnPlayer(id: string, data: any, isLocal: boolean): void {
     const player = new Player(
       this,
+      id,
       data,
       isLocal,
       isLocal ? this.socket : undefined
     );
-    this.players.set(data.id, player);
+    this.players.set(id, player);
   }
-
-  // ───── Loop do jogo ───────────────────────────────────────────────────────
 
   update(): void {
     this.players.forEach((player) => player.update());

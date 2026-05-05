@@ -1,57 +1,68 @@
-import { PlayerData, RoomState, ChatMessage } from './types';
+import { PlayerData, RoomState } from './types';
 
-// Paleta de cores para os avatares dos jogadores
-const PLAYER_COLORS = [
-  0xe74c3c, 0x3498db, 0x2ecc71, 0xf39c12,
-  0x9b59b6, 0x1abc9c, 0xe67e22, 0x34495e,
+// Paleta de cores para os avatares (Habbo-style colors)
+const AVATAR_COLORS = [
+  0x3b82f6, // Blue
+  0xef4444, // Red
+  0x10b981, // Green
+  0xf59e0b, // Amber
+  0x8b5cf6, // Violet
+  0xec4899, // Pink
+  0x06b6d4, // Cyan
 ];
 
-/**
- * RoomManager é responsável por manter o estado dos jogadores
- * em memória. Não há persistência — tudo se perde ao reiniciar.
- */
 export class RoomManager {
-  private players: { [id: string]: PlayerData } = {};
-  private colorIndex = 0;
+  private players: Map<string, PlayerData> = new Map();
+  
+  private readonly GRID_SIZE = 32;
+  private readonly WORLD_WIDTH = 40;
+  private readonly WORLD_HEIGHT = 22;
 
-  /** Adiciona um novo jogador e retorna seus dados */
   addPlayer(id: string, name: string): PlayerData {
-    const color = PLAYER_COLORS[this.colorIndex % PLAYER_COLORS.length];
-    this.colorIndex++;
-
+    const randomColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+    
     const player: PlayerData = {
-      id,
-      name: name.trim().slice(0, 20) || 'Visitante',
-      x: 100 + Math.floor(Math.random() * 600),
-      y: 100 + Math.floor(Math.random() * 400),
-      color,
+      n: name.trim().slice(0, 15) || 'Guest',
+      x: 10 + Math.floor(Math.random() * 5),
+      y: 10 + Math.floor(Math.random() * 5),
+      d: 1, // South
+      c: randomColor,
     };
 
-    this.players[id] = player;
+    this.players.set(id, player);
     return player;
   }
 
-  /** Remove um jogador */
   removePlayer(id: string): void {
-    delete this.players[id];
+    this.players.delete(id);
   }
 
-  /** Atualiza a posição de um jogador */
-  movePlayer(id: string, x: number, y: number): PlayerData | null {
-    const player = this.players[id];
+  movePlayer(id: string, x: number, y: number, d: number): PlayerData | null {
+    const player = this.players.get(id);
     if (!player) return null;
-    player.x = Math.max(0, Math.min(x, 1200));
-    player.y = Math.max(0, Math.min(y, 700));
-    return player;
+
+    const dx = Math.abs(x - player.x);
+    const dy = Math.abs(y - player.y);
+    const isAdjacent = (dx === 1 && dy === 0) || (dx === 0 && dy === 1);
+    const isInsideWorld = x >= 0 && x < this.WORLD_WIDTH && y >= 0 && y < this.WORLD_HEIGHT;
+
+    if (isAdjacent && isInsideWorld) {
+      player.x = x;
+      player.y = y;
+      player.d = d;
+      return player;
+    }
+
+    return null;
   }
 
-  /** Retorna o estado atual da sala */
   getState(): RoomState {
-    return { players: { ...this.players } };
+    const p: { [id: string]: PlayerData } = {};
+    this.players.forEach((val, key) => { p[key] = val; });
+    return { p };
   }
 
-  /** Verifica se um jogador existe */
   getPlayer(id: string): PlayerData | undefined {
-    return this.players[id];
+    return this.players.get(id);
   }
 }

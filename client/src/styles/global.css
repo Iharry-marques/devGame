@@ -109,16 +109,19 @@ html, body {
 
 /* ─────────────────────────────────────────────────
    GAME CONTAINER
+   Fix: Adicionada posição relativa para ancorar balões HTML
 ───────────────────────────────────────────────── */
 #game-container {
   display: flex !important;
   width: 100vw;
   height: 100vh;
+  position: relative; /* Necessário para os balões flutuantes */
 }
 
 #phaser-canvas {
   flex: 1;
   overflow: hidden;
+  position: relative;
 }
 
 #phaser-canvas canvas {
@@ -126,8 +129,52 @@ html, body {
 }
 
 /* ─────────────────────────────────────────────────
-   CHAT PANEL
+   CHAT BUBBLES (HTML OVERLAY)
 ───────────────────────────────────────────────── */
+.chat-bubble-float {
+  position: absolute;
+  transform: translate(-50%, -100%);
+  background: white;
+  color: #1e293b;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+  animation: bubblePop 0.2s ease-out;
+}
+
+.chat-bubble-float::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border-width: 6px;
+  border-style: solid;
+  border-color: white transparent transparent transparent;
+}
+
+@keyframes bubblePop {
+  0% { transform: translate(-50%, -80%) scale(0.8); opacity: 0; }
+  100% { transform: translate(-50%, -100%) scale(1); opacity: 1; }
+}
+
+/* ─────────────────────────────────────────────────
+   ANIMATIONS
+───────────────────────────────────────────────── */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
 #chat-panel {
   width: var(--chat-width);
   background: var(--surface);

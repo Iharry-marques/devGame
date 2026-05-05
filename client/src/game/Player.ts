@@ -1,152 +1,149 @@
 import { Socket } from 'socket.io-client';
-import { PlayerData } from '../../../server/src/types';
+import { Avatar } from './Avatar';
 
-const BUBBLE_DURATION = 5000; // ms
-const LERP_FACTOR = 0.1;      // Suavização de movimento (0 = sem movimento, 1 = instantâneo)
+const GRID_SIZE = 32;
+const LERP_FACTOR = 0.15;
+const BUBBLE_DURATION = 4000;
 
-/**
- * Player representa um avatar no mundo do jogo.
- * Funciona tanto para o jogador local quanto para jogadores remotos.
- */
 export class Player {
   private scene: Phaser.Scene;
   readonly id: string;
   readonly isLocal: boolean;
+  private socket?: Socket;
 
-  // Posição alvo (recebida do servidor) — usada no lerp
+  // Estado
+  private gridX: number;
+  private gridY: number;
+  private direction: number = 1;
+
+  // Visual
   private targetX: number;
   private targetY: number;
-
-  // Objetos visuais
-  private body: Phaser.GameObjects.Arc;
+  private avatar: Avatar;
   private nameLabel: Phaser.GameObjects.Text;
-  private bubbleContainer: Phaser.GameObjects.Container | null = null;
-  private bubbleTimer: ReturnType<typeof setTimeout> | null = null;
+  
+  // Chat Bubble
+  private bubbleEl: HTMLDivElement | null = null;
+  private bubbleTimeout: any = null;
+
+  // Input
+  private cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
+  private wasd?: { [key: string]: Phaser.Input.Keyboard.Key };
+  private lastMoveTime = 0;
+  private moveInterval = 180;
 
   constructor(
     scene: Phaser.Scene,
-    data: PlayerData,
+    id: string,
+    data: any,
     isLocal: boolean,
     socket?: Socket
   ) {
     this.scene = scene;
-    this.id = data.id;
+    this.id = id;
     this.isLocal = isLocal;
-    this.targetX = data.x;
-    this.targetY = data.y;
+    this.socket = socket;
+    
+    this.gridX = data.x;
+    this.gridY = data.y;
+    this.direction = data.d || 1;
+    this.targetX = this.gridX * GRID_SIZE + GRID_SIZE / 2;
+    this.targetY = this.gridY * GRID_SIZE + GRID_SIZE / 2;
 
-    // ── Avatar: círculo colorido ───────────────────────────────
-    this.body = scene.add.circle(data.x, data.y, 22, data.color);
+    // Instanciar Classe Avatar
+    this.avatar = new Avatar(scene, this.targetX, this.targetY, data.c || 0x3b82f6);
+    this.avatar.setDirection(this.direction);
 
-    // Anel branco para destacar o jogador local
-    if (isLocal) {
-      scene.add.circle(data.x, data.y, 26)
-        .setStrokeStyle(2, 0xffffff, 0.6)
-        .setFillStyle(0, 0)
-        .setName(`ring_${data.id}`);
-    }
-
-    // ── Nome acima do avatar ───────────────────────────────────
-    this.nameLabel = scene.add.text(data.x, data.y - 34, data.name, {
-      fontSize: '12px',
-      color: '#e2e8f0',
-      fontFamily: 'Inter, sans-serif',
-      stroke: '#0f0f1a',
-      strokeThickness: 3,
-    }).setOrigin(0.5);
-
-    // ── Clique para mover (apenas jogador local) ───────────────
-    if (isLocal && socket) {
-      scene.input.on('pointerdown', (ptr: Phaser.Input.Pointer) => {
-        this.targetX = ptr.worldX;
-        this.targetY = ptr.worldY;
-        socket.emit('player:move', { x: this.targetX, y: this.targetY });
-      });
-    }
-  }
-
-  /** Atualiza a posição alvo (chamado quando servidor envia player:moved) */
-  setTargetPosition(x: number, y: number): void {
-    this.targetX = x;
-    this.targetY = y;
-  }
-
-  /**
-   * Exibe balão de fala acima do avatar.
-   * Se já houver um balão, substitui.
-   */
-  showBubble(text: string): void {
-    // Remove balão anterior
-    if (this.bubbleTimer) clearTimeout(this.bubbleTimer);
-    if (this.bubbleContainer) {
-      this.bubbleContainer.destroy();
-      this.bubbleContainer = null;
-    }
-
-    const padding = { x: 10, y: 6 };
-    const maxWidth = 160;
-
-    const bubbleText = this.scene.add.text(0, 0, text, {
+    // Label do Nome
+    this.nameLabel = scene.add.text(this.targetX, this.targetY - 30, data.n || '...', {
       fontSize: '11px',
-      color: '#1a1a2e',
+      color: '#ffffff',
       fontFamily: 'Inter, sans-serif',
-      wordWrap: { width: maxWidth - padding.x * 2 },
-      align: 'center',
+      stroke: '#000000',
+      strokeThickness: 2
     }).setOrigin(0.5);
 
-    const bw = Math.min(bubbleText.width + padding.x * 2, maxWidth);
-    const bh = bubbleText.height + padding.y * 2;
+    if (isLocal) {
+      this.cursors = scene.input.keyboard!.createCursorKeys();
+      this.wasd = scene.input.keyboard!.addKeys('W,A,S,D') as any;
+    }
+  }
 
-    // Fundo do balão
-    const bg = this.scene.add.graphics();
-    bg.fillStyle(0xffffff, 0.95);
-    bg.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, 8);
+  setTargetPosition(gx: number, gy: number, d: number): void {
+    this.gridX = gx;
+    this.gridY = gy;
+    this.direction = d;
+    this.targetX = gx * GRID_SIZE + GRID_SIZE / 2;
+    this.targetY = gy * GRID_SIZE + GRID_SIZE / 2;
+    this.avatar.setDirection(d);
+  }
 
-    // Setinha apontando para baixo
-    const tip = this.scene.add.graphics();
-    tip.fillStyle(0xffffff, 0.95);
-    tip.fillTriangle(-6, bh / 2, 6, bh / 2, 0, bh / 2 + 8);
+  showBubble(text: string): void {
+    if (this.bubbleTimeout) clearTimeout(this.bubbleTimeout);
+    if (this.bubbleEl) this.bubbleEl.remove();
 
-    this.bubbleContainer = this.scene.add.container(
-      this.body.x,
-      this.body.y - 60,
-      [bg, tip, bubbleText]
-    );
+    this.bubbleEl = document.createElement('div');
+    this.bubbleEl.className = 'chat-bubble-float';
+    this.bubbleEl.textContent = text;
+    
+    document.getElementById('game-container')?.appendChild(this.bubbleEl);
+    this.updateBubblePosition();
 
-    // Auto-destruição após BUBBLE_DURATION
-    this.bubbleTimer = setTimeout(() => {
-      this.bubbleContainer?.destroy();
-      this.bubbleContainer = null;
+    this.bubbleTimeout = setTimeout(() => {
+      this.bubbleEl?.remove();
+      this.bubbleEl = null;
     }, BUBBLE_DURATION);
   }
 
-  /** Chamado a cada frame pelo Phaser — faz a interpolação linear */
+  private updateBubblePosition(): void {
+    if (!this.bubbleEl) return;
+    const cam = this.scene.cameras.main;
+    const screenX = (this.avatar.x - cam.scrollX) * cam.zoom;
+    const screenY = (this.avatar.y - cam.scrollY) * cam.zoom;
+    this.bubbleEl.style.left = `${screenX}px`;
+    this.bubbleEl.style.top = `${screenY - 50}px`;
+  }
+
   update(): void {
-    // Lerp suave para a posição alvo
-    const newX = Phaser.Math.Linear(this.body.x, this.targetX, LERP_FACTOR);
-    const newY = Phaser.Math.Linear(this.body.y, this.targetY, LERP_FACTOR);
+    const nx = Phaser.Math.Linear(this.avatar.x, this.targetX, LERP_FACTOR);
+    const ny = Phaser.Math.Linear(this.avatar.y, this.targetY, LERP_FACTOR);
+    
+    this.avatar.setPosition(nx, ny);
+    this.nameLabel.setPosition(nx, ny - 30);
+    this.updateBubblePosition();
 
-    this.body.setPosition(newX, newY);
-    this.nameLabel.setPosition(newX, newY - 34);
+    if (this.isLocal && this.socket) {
+      const now = Date.now();
+      if (now - this.lastMoveTime > this.moveInterval) {
+        let dx = 0;
+        let dy = 0;
+        let dir = this.direction;
 
-    // Atualiza o anel do jogador local (se existir)
-    const ring = this.scene.children.getByName(`ring_${this.id}`) as Phaser.GameObjects.Arc | null;
-    if (ring) ring.setPosition(newX, newY);
+        if (this.cursors?.up.isDown || this.wasd?.W.isDown) { dy = -1; dir = 0; }
+        else if (this.cursors?.down.isDown || this.wasd?.S.isDown) { dy = 1; dir = 1; }
+        else if (this.cursors?.left.isDown || this.wasd?.A.isDown) { dx = -1; dir = 3; }
+        else if (this.cursors?.right.isDown || this.wasd?.D.isDown) { dx = 1; dir = 2; }
 
-    // Atualiza balão de fala
-    if (this.bubbleContainer) {
-      this.bubbleContainer.setPosition(newX, newY - 60);
+        if (dx !== 0 || dy !== 0) {
+          this.socket.emit('m', {
+            x: this.gridX + dx,
+            y: this.gridY + dy,
+            d: dir
+          });
+          this.lastMoveTime = now;
+        } else if (dir !== this.direction) {
+          // Se apenas mudou de direção, também notificamos (opcional, mas bom para feedback)
+          this.socket.emit('m', { x: this.gridX, y: this.gridY, d: dir });
+          this.lastMoveTime = now;
+        }
+      }
     }
   }
 
-  /** Remove todos os objetos desta instância da cena */
   destroy(): void {
-    if (this.bubbleTimer) clearTimeout(this.bubbleTimer);
-    this.bubbleContainer?.destroy();
+    this.avatar.destroy();
     this.nameLabel.destroy();
-    this.body.destroy();
-
-    const ring = this.scene.children.getByName(`ring_${this.id}`);
-    ring?.destroy();
+    if (this.bubbleEl) this.bubbleEl.remove();
+    if (this.bubbleTimeout) clearTimeout(this.bubbleTimeout);
   }
 }
