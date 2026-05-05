@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Social Game — Sala Virtual</title>
+    <link rel="stylesheet" href="/src/styles/global.css" />
+  </head>
+  <body>
+    <!-- Overlay de login -->
+    <div id="login-overlay">
+      <div id="login-card">
+        <h1>🎮 Sala Virtual</h1>
+        <p>Digite seu nome para entrar</p>
+        <input
+          id="player-name-input"
+          type="text"
+          placeholder="Seu nome..."
+          maxlength="20"
+          autocomplete="off"
+          autofocus
+        />
+        <button id="join-btn">Entrar na Sala</button>
+      </div>
+    </div>
+
+    <!-- UI do jogo (visível após login) -->
+    <div id="game-container" style="display: none;">
+      <!-- Phaser será montado aqui -->
+      <div id="phaser-canvas"></div>
+
+      <!-- Painel de chat lateral -->
+      <div id="chat-panel">
+        <div id="chat-header">💬 Chat</div>
+        <ul id="chat-history"></ul>
+        <div id="chat-input-row">
+          <input
+            id="chat-input"
+            type="text"
+            placeholder="Mensagem..."
+            maxlength="100"
+            autocomplete="off"
+          />
+          <button id="chat-send-btn">→</button>
+        </div>
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
